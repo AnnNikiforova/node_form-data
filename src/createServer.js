@@ -1,3 +1,5 @@
+'use strict';
+
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,10 +33,9 @@ function createServer() {
       });
 
       req.on('end', () => {
-        let dataObj;
-
         try {
           const contentType = req.headers['content-type'];
+          let dataObj;
 
           if (contentType.includes('application/json')) {
             dataObj = JSON.parse(body);
@@ -58,51 +59,65 @@ function createServer() {
             return res.end('Invalid data format');
           }
 
-          const filePath = path.resolve('db', 'expense.json');
+          const dbDir = path.resolve('db');
+
+          if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
+          }
+
+          const filePath = path.join(dbDir, 'expense.json');
 
           fs.readFile(filePath, (err, fileData) => {
-            let parsedFileData = [];
+            let newDataForFile;
 
-            if (err) {
-              res.writeHead(500, { 'Content-Type': 'text/plain' });
+            if (!err && fileData.length > 0) {
+              try {
+                const temp = JSON.parse(fileData);
 
-              return res.end(`Server error: ${err}`);
-            } else {
-              parsedFileData = JSON.parse(fileData);
-
-              if (typeof parsedFileData === 'object') {
-                if (Object.keys(parsedFileData).length) {
-                  parsedFileData = [parsedFileData];
-                  parsedFileData.push(dataObj);
-                } else if (!Object.keys(parsedFileData).length) {
-                  parsedFileData = dataObj;
-                } else if (Array.isArray(parsedFileData)) {
-                  parsedFileData.push(dataObj);
+                if (Array.isArray(temp)) {
+                  temp.push(dataObj);
+                  newDataForFile = temp;
+                } else if (
+                  typeof temp === 'object' &&
+                  temp !== null &&
+                  Object.keys(temp).length > 0
+                ) {
+                  newDataForFile = [temp, dataObj];
+                } else {
+                  newDataForFile = dataObj;
                 }
+              } catch (e) {
+                newDataForFile = dataObj;
               }
+            } else {
+              newDataForFile = dataObj;
+            }
 
-              const newData = JSON.stringify(parsedFileData, null, 2);
-
-              fs.writeFile(filePath, newData, (error) => {
+            fs.writeFile(
+              filePath,
+              JSON.stringify(newDataForFile, null, 2),
+              (error) => {
                 if (error) {
                   res.writeHead(500, { 'Content-Type': 'text/plain' });
 
                   return res.end(`Server error: ${error}`);
                 }
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(newData);
-              });
-            }
+                res.end(JSON.stringify(dataObj));
+              },
+            );
           });
         } catch (e) {
           res.writeHead(400, { 'Content-Type': 'text/plain' });
           res.end(`Invalid request body: ${e.message}`);
         }
       });
-    } else {
-      res.statusCode = 404;
-      res.end('Not found');
+
+      return;
     }
+
+    res.statusCode = 404;
+    res.end('Not found');
   });
 
   return server;
